@@ -1,0 +1,96 @@
+import traceback
+import sys
+from bs4 import BeautifulSoup as bs4
+import pandas as pd 
+from splinter import Browser
+from webdriver_manager.chrome import ChromeDriverManager
+
+# URLs to scrape
+nasa_news = "https://mars.nasa.gov/news/"
+mars_images = "https://data-class-jpl-space.s3.amazonaws.com/JPL_Space/index.html"
+mars_facts = "https://space-facts.com/mars/"
+astro_url = "https://astrogeology.usgs.gov"
+mars_hemispheres = astro_url + "/search/results?q=hemisphere+enhanced&k1=target&v1=Mars"
+weather_url = "https://twitter.com/marswxreport?lang=en"
+
+# browser class to enable scraping through chrome
+# Each creation of ChromeBrowser object will open then close a new browser to perform an operation
+class ChromeBrowser(object):
+
+    def __init__(self, url):
+        self.url = url
+
+    def __enter__(self):
+        executable_path = {'executable_path': ChromeDriverManager().install()}
+        self.browser = Browser('chrome', **executable_path, headless=False)
+        self.browser.visit(self.url)
+        return self.browser
+
+    def __exit__(self, ex_type, val, tb):
+        if (ex_type is not None):
+            traceback.print_exception(ex_type, val, tb)
+        if (self.browser is not None):
+            self.browser.quit()
+        return True
+
+        # Scrape NASA News site
+# Collect news_title and news_p from site and store for later use
+news_title = ""
+news_p = ""
+
+with ChromeBrowser(nasa_news) as browser: 
+    html = browser.html
+    soup = bs4(html, "html.parser")
+    news_title = soup.find('div', class_='content_title').text
+    news_p = soup.find('div', class_='article_teaser_body').text
+
+print(news_title)
+print('---------------------')
+print(news_p)
+
+image_url = ""
+
+with ChromeBrowser(mars_images) as browser:
+    html = browser.html
+    soup = bs4(html, "html.parser")
+    browser.links.find_by_partial_text("FULL IMAGE").click()
+    html = browser.html
+    soup = bs4(html, "html.parser")
+    image_url = mars_images.replace("index.html", soup.find(class_="fancybox-image")["src"])
+print(image_url)
+
+with ChromeBrowser(mars_facts) as browser:
+    mars_facts_frame = pd.read_html(browser.html, match="Mars")[0]
+    mars_facts_frame = mars_facts_frame.set_index("Mars - Earth Comparison", drop=True)
+    mars_facts_frame.columns = [col.replace(":","") for col in mars_facts_frame.columns]
+    #mars_facts_frame.drop('Earth', axis=1, inplace=True) #If you want to get rid of Earth Comparison
+mars_facts_frame
+
+image_urls = []
+
+with ChromeBrowser(mars_hemispheres) as browser:
+    html = browser.html
+    soup = bs4(html, "html.parser")
+    res = soup.find(class_="result-list").find_all(class_="item")
+    for r in res: 
+        hemi = {}
+        hemi["title"] = r.find("h3").text
+        browser.links.find_by_partial_text(hemi["title"]).click()
+        html = browser.html
+        soup = bs4(html, "html.parser")
+        hemi["img_url"] = astro_url + soup.find(class_="wide-image")["src"]
+        image_urls.append(hemi)
+        browser.back()
+
+for url in image_urls:
+    print(url)
+
+    with ChromeBrowser(weather_url) as browser:
+        html = browser.html
+        soup = bs4(html, 'html.parser')
+
+        results = soup.find_all('p', class_="TweetTextSize")
+
+        # Grab text of first tweet
+        
+        print(results)
